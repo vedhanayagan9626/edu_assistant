@@ -148,6 +148,22 @@ def get_subject_documents(subject_id):
     documents = SubjectDocument.query.filter_by(subject_id=subject_id).all()
     return jsonify([d.to_dict() for d in documents]), 200
 
+@staff_bp.route('/departments', methods=['GET'])
+@jwt_required()
+@staff_required
+def get_staff_departments():
+    """Get departments assigned to the staff member"""
+    user_id = get_jwt_identity()
+    dept_mappings = StaffDepartment.query.filter_by(staff_id=user_id).all()
+    dept_ids = [m.department_id for m in dept_mappings]
+    
+    if not dept_ids:
+        return jsonify([]), 200
+        
+    from app.models.department import Department
+    depts = Department.query.filter(Department.id.in_(dept_ids)).all()
+    return jsonify([d.to_dict() for d in depts]), 200
+
 @staff_bp.route('/subjects', methods=['GET'])
 @jwt_required()
 @staff_required
@@ -163,3 +179,73 @@ def get_my_subjects():
 
     subjects = Subject.query.filter(Subject.department_id.in_(dept_ids)).all()
     return jsonify([s.to_dict() for s in subjects]), 200
+
+@staff_bp.route('/subjects/<int:subject_id>', methods=['PUT'])
+@jwt_required()
+@staff_required
+def update_subject(subject_id):
+    """Update existing subject"""
+    data = request.get_json()
+    user_id = get_jwt_identity()
+    
+    subject = Subject.query.get_or_404(subject_id)
+    
+    # Verify access
+    mapping = StaffDepartment.query.filter_by(
+        staff_id=user_id,
+        department_id=subject.department_id
+    ).first()
+    
+    if not mapping:
+        return jsonify({'error': 'Not authorized for this subject'}), 403
+        
+    subject.name = data.get('name', subject.name)
+    subject.code = data.get('code', subject.code)
+    subject.description = data.get('description', subject.description)
+    
+    if 'department_id' in data and int(data['department_id']) != subject.department_id:
+        new_mapping = StaffDepartment.query.filter_by(
+            staff_id=user_id,
+            department_id=data['department_id']
+        ).first()
+        if not new_mapping:
+            return jsonify({'error': 'Not authorized for the new department'}), 403
+        subject.department_id = data['department_id']
+        
+    db.session.commit()
+    return jsonify(subject.to_dict()), 200
+
+@staff_bp.route('/subjects/<int:subject_id>', methods=['DELETE'])
+@jwt_required()
+@staff_required
+def delete_subject(subject_id):
+    """Delete subject and its documents/vector collection"""
+    user_id = get_jwt_identity()
+    subject = Subject.query.get_or_404(subject_id)
+    
+    # Verify access
+    mapping = StaffDepartment.query.filter_by(
+        staff_id=user_id,
+        department_id=subject.department_id
+    ).first()
+    
+    if not mapping:
+        return jsonify({'error': 'Not authorized for this subject'}), 403
+        
+    # Delete docs
+    docs = SubjectDocument.query.filter_by(subject_id=subject_id).all()
+    for doc in docs:
+        if os.path.exists(doc.file_path):
+            os.remove(doc.file_path)
+        db.session.delete(doc)
+    
+    # Delete Chroma collection
+    try:
+        rag_service.delete_subject_collection(subject_id)
+    except Exception as e:
+        print(f"Error deleting collection: {e}")
+        
+    db.session.delete(subject)
+    db.session.commit()
+    
+    return jsonify({'message': 'Subject deleted successfully'}), 200

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import DashboardLayout from '../components/layout/DashboardLayout';
-import { BookOpen, Upload, Plus, FileText, CheckCircle, X, Loader2 } from 'lucide-react';
+import { BookOpen, Upload, Plus, FileText, CheckCircle, X, Loader2, Edit3, Trash2 } from 'lucide-react';
 import api from '../api/axios';
 import { toast } from 'react-hot-toast';
 
@@ -11,6 +11,7 @@ const StaffDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(null); // subjectId being uploaded
     const [lastUploadedId, setLastUploadedId] = useState(null); // to trigger modal refresh
+    const [editingSubject, setEditingSubject] = useState(null);
     const fileInputRef = useRef(null);
 
     const sidebarItems = [
@@ -24,6 +25,18 @@ const StaffDashboard = () => {
             setSubjects(res.data);
         } catch (err) {
             console.error(err);
+        }
+    };
+
+    const handleDeleteSubject = async (id) => {
+        if (!window.confirm("Are you sure you want to delete this subject? All documents and data will be permanently removed.")) return;
+
+        try {
+            await api.delete(`/staff/subjects/${id}`);
+            toast.success("Subject deleted successfully");
+            fetchSubjects();
+        } catch (err) {
+            toast.error(err.response?.data?.error || "Failed to delete subject");
         }
     };
 
@@ -61,7 +74,6 @@ const StaffDashboard = () => {
             });
             toast.success("File uploaded and processed successfully!", { id: uploadToast });
             fetchSubjects();
-            // Store the ID to trigger refresh in modal if open
             setLastUploadedId(Date.now());
         } catch (err) {
             console.error(err);
@@ -108,7 +120,12 @@ const StaffDashboard = () => {
                                     <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <BookOpen size={24} color="#374151" />
                                     </div>
-                                    <span style={{ background: '#EEF2FF', color: '#4F46E5', padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '600' }}>{subject.code}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <button onClick={() => setEditingSubject(subject)} style={{ color: '#3B82F6', background: 'none', border: 'none', cursor: 'pointer' }} title="Edit"><Edit3 size={18} /></button>
+                                        <button onClick={() => handleDeleteSubject(subject.id)} style={{ color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer' }} title="Delete"><Trash2 size={18} /></button>
+                                        <div style={{ width: '8px' }} />
+                                        <span style={{ background: '#EEF2FF', color: '#4F46E5', padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '600' }}>{subject.code}</span>
+                                    </div>
                                 </div>
 
                                 <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>{subject.name}</h3>
@@ -152,10 +169,22 @@ const StaffDashboard = () => {
                 )}
 
                 {showCreateModal && (
-                    <CreateSubjectModal
+                    <SubjectModal
                         onClose={() => setShowCreateModal(false)}
                         onSuccess={() => {
                             setShowCreateModal(false);
+                            fetchSubjects();
+                        }}
+                    />
+                )}
+
+                {editingSubject && (
+                    <SubjectModal
+                        mode="edit"
+                        initialData={editingSubject}
+                        onClose={() => setEditingSubject(null)}
+                        onSuccess={() => {
+                            setEditingSubject(null);
                             fetchSubjects();
                         }}
                     />
@@ -253,24 +282,52 @@ const SubjectDetailsModal = ({ subject, onClose, refreshTrigger }) => {
     );
 };
 
-const CreateSubjectModal = ({ onClose, onSuccess }) => {
+const SubjectModal = ({ mode = 'add', initialData, onClose, onSuccess }) => {
     const [formData, setFormData] = useState({
-        name: '',
-        code: '',
-        description: '',
-        department_id: ''
+        name: initialData?.name || '',
+        code: initialData?.code || '',
+        description: initialData?.description || '',
+        department_id: initialData?.department_id || ''
     });
+    const [departments, setDepartments] = useState([]);
+    const [loadingDepts, setLoadingDepts] = useState(true);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        const fetchDepts = async () => {
+            try {
+                const res = await api.get('/staff/departments');
+                setDepartments(res.data);
+                if (mode === 'add' && res.data.length > 0 && !formData.department_id) {
+                    setFormData(prev => ({ ...prev, department_id: res.data[0].id }));
+                }
+            } catch (err) {
+                console.error("Failed to load departments", err);
+            } finally {
+                setLoadingDepts(false);
+            }
+        };
+        fetchDepts();
+    }, [mode, formData.department_id]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!formData.department_id) {
+            toast.error("Please select a department");
+            return;
+        }
         setError('');
         try {
-            await api.post('/staff/subjects', formData);
-            toast.success("Subject created successfully!");
+            if (mode === 'add') {
+                await api.post('/staff/subjects', formData);
+                toast.success("Subject created successfully!");
+            } else {
+                await api.put(`/staff/subjects/${initialData.id}`, formData);
+                toast.success("Subject updated successfully!");
+            }
             onSuccess();
         } catch (err) {
-            const msg = err.response?.data?.error || 'Failed to create subject';
+            const msg = err.response?.data?.error || 'Failed to save subject';
             setError(msg);
             toast.error(msg);
         }
@@ -284,7 +341,7 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
         }}>
             <div style={{ background: 'white', borderRadius: '24px', padding: '32px', width: '400px', boxShadow: 'var(--shadow-lg)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
-                    <h2 style={{ fontSize: '1.5rem' }}>Create Subject</h2>
+                    <h2 style={{ fontSize: '1.5rem' }}>{mode === 'edit' ? 'Edit Subject' : 'Create Subject'}</h2>
                     <button onClick={onClose}><X size={24} /></button>
                 </div>
 
@@ -311,20 +368,31 @@ const CreateSubjectModal = ({ onClose, onSuccess }) => {
                         onChange={e => setFormData({ ...formData, description: e.target.value })}
                         style={{ padding: '12px', borderRadius: '8px', border: '1px solid #E5E7EB', minHeight: '80px' }}
                     />
-                    <input
-                        type="number"
-                        placeholder="Department ID"
-                        value={formData.department_id}
-                        onChange={e => setFormData({ ...formData, department_id: e.target.value })}
-                        style={{ padding: '12px', borderRadius: '8px', border: '1px solid #E5E7EB' }}
-                        required
-                    />
-                    <button type="submit" style={{
+
+                    <div>
+                        <label style={{ fontSize: '0.85rem', color: '#6B7280', marginBottom: '4px', display: 'block' }}>Department</label>
+                        <select
+                            value={formData.department_id}
+                            onChange={e => setFormData({ ...formData, department_id: e.target.value })}
+                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white' }}
+                            required
+                        >
+                            <option value="">Select department...</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                            ))}
+                        </select>
+                        {loadingDepts && <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)' }}>Loading departments...</span>}
+                    </div>
+
+                    <button type="submit" disabled={departments.length === 0} style={{
                         marginTop: '8px',
-                        background: 'var(--color-primary)', color: 'white', padding: '12px',
-                        borderRadius: '12px', fontWeight: 'bold'
+                        background: departments.length === 0 ? '#9CA3AF' : 'var(--color-primary)',
+                        color: 'white', padding: '12px',
+                        borderRadius: '12px', fontWeight: 'bold',
+                        cursor: departments.length === 0 ? 'not-allowed' : 'pointer'
                     }}>
-                        Create Subject
+                        {mode === 'edit' ? 'Update Subject' : 'Create Subject'}
                     </button>
                 </form>
             </div>

@@ -132,3 +132,11 @@ class RAGService:
         except Exception as e:
             print(f"Error during RAG query: {str(e)}")
             return []
+
+    def delete_subject_collection(self, subject_id: int):
+        """Delete ChromaDB collection for a subject"""
+        collection_name = f"subject_{subject_id}"
+        try:
+            self.client.delete_collection(name=collection_name)
+        except Exception as e:
+            print(f"Error deleting collection {collection_name}: {e}")
