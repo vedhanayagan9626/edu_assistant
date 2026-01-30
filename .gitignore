@@ -1,0 +1,27 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.eslintcache
+
+# Databases & Large Files
+instance/
+chroma_db/
+uploads/
+*.db
+*.log
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
